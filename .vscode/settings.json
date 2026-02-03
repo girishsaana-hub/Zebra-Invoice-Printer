@@ -1,0 +1,7 @@
+{
+  "java.import.gradle.wrapper.enabled": true,
+  "java.import.gradle.version": null,
+  "java.import.gradle.home": null,
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.compile.nullAnalysis.mode": "disabled"
+}
