@@ -1,314 +1,276 @@
 import { InvoiceWithDetails, InvoiceLine } from '../types/Invoice';
 
 /**
- * ZPL Invoice Generator
- * Zebra ZQ520 – 203 DPI – 4 inch width (812 dots)
- * Optimized for Arabic printing using UTF-8 encoding
- */
+ * ZPL Invoice Generator - Zebra ZQ520
+ * Matches original format.jpeg layout exactly
+ * 
+ * ZQ520: 4-inch (104mm) printable width = 832 dots at 203 DPI
+ * 
+ * Arabic text: Using ^A@N for bold TrueType font rendering
+ * Text alignment: Using ^FB (Field Block) for proper alignment
+ */
 class ZPLGeneratorService {
-  // ZQ520: 203 DPI, 4" paper = 4 * 203 = 812 dots
-  private labelWidth = 812;
-  private margin = 15;
+  private width = 832;  // 4 inch at 203 DPI
+  private margin = 15;
 
-  generateInvoiceZPL(invoice: InvoiceWithDetails): string {
-    let zpl = '';
+  generateInvoiceZPL(invoice: InvoiceWithDetails): string {
+    // Calculate label height based on content
+    const lineItemHeight = 110;
+    const baseHeight = 1500;
+    const labelHeight = baseHeight + (invoice.lines.length * lineItemHeight);
 
-    const baseHeight = 1300;
-    const lineItemHeight = 100;
-    const totalHeight = baseHeight + invoice.lines.length * lineItemHeight;
+    let zpl = '';
+    
+    // Start label with Arabic font setup
+    zpl += '^XA\n';
+    zpl += '^MMT\n';                           // Tear-off mode
+    zpl += `^PW${this.width}\n`;              // Print width
+    zpl += `^LL${labelHeight}\n`;             // Label length
+    zpl += '^CI28\n';                         // UTF-8 encoding
+    zpl += '^CWZ,E:TT0003M_.TTF\n';           // Arabic TrueType font
 
-    zpl += '^XA\n';
-    zpl += '^MMT\n';
-    zpl += '^LS0\n';
-    zpl += `^PW${this.labelWidth}\n`;
-    zpl += `^LL${totalHeight}\n`;
-    
-    // UTF-8 encoding for multi-language support
-    zpl += '^CI28\n';
-    
-    let yPos = this.margin;
+    let y = 20;
 
-    // Company Header
-    zpl += this.generateCompanyHeader(yPos);
-    yPos = 110;
+    // ===== COMPANY HEADER =====
+    // Logo placeholder (left side)
+    zpl += `^FO${this.margin},${y}^GB100,85,2^FS\n`;
+    zpl += `^FO${this.margin + 25},${y + 32}^A0N,20,20^FDLOGO^FS\n`;
+    
+    // Company info (right aligned)
+    const companyX = 380;
+    const companyWidth = this.width - companyX - this.margin;
+    zpl += `^FO${companyX},${y}^A0N,18,18^FB${companyWidth},1,0,R^FDVAT REG.NO.: 100057393900003^FS\n`;
+    y += 22;
+    zpl += `^FO${companyX},${y}^A0N,18,18^FB${companyWidth},1,0,R^FDRAINBOW DIV-OOH^FS\n`;
+    y += 22;
+    zpl += `^FO${companyX},${y}^A0N,18,18^FB${companyWidth},1,0,R^FDPO BOX:5249-DUBAI-UAE^FS\n`;
+    y += 22;
+    zpl += `^FO${companyX},${y}^A0N,18,18^FB${companyWidth},1,0,R^FDTEL:04-2979991 FAX:04-2662931^FS\n`;
+    y += 22;
+    zpl += `^FO${companyX},${y}^A0N,18,18^FB${companyWidth},1,0,R^FDEMAIL:RAINBOW@CHOITHRAMS.COM^FS\n`;
+    
+    y = 150;
 
-    // INVOICE Title
-    zpl += this.centerText('INVOICE', yPos, 32, 32);
-    yPos += 40;
+    // ===== INVOICE TITLE =====
+    zpl += `^FO0,${y}^A0N,42,42^FB${this.width},1,0,C^FDINVOICE^FS\n`;
+    y += 60;
 
-    // Invoice Details - Two columns
-    zpl += this.generateInvoiceDetails(invoice, yPos);
-    yPos += 200;
+    // ===== INVOICE DETAILS - TWO COLUMNS =====
+    const leftX = this.margin;
+    const rightColX = 420;  // Right column starts here
+    const rightColWidth = this.width - rightColX - this.margin;
+    const startY = y;
 
-    // SALES header
-    zpl += `^FO200,${yPos}^A0N,28,28^FDSALES^FS\n`;
-    zpl += `^FO420,${yPos}^A0N,28,28^FDالمبيعات^FS\n`;
-    yPos += 35;
+    // Left column - Customer info
+    zpl += `^FO${leftX},${y}^A0N,20,20^FDSALESMAN: ${this.truncate((invoice.salesman_code || '') + ' - ' + (invoice.salesman_name || ''), 38)}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FDRoute  : ${this.truncate((invoice.route_code || '') + ' - ' + (invoice.route_name || ''), 38)}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FDCUST   : ${invoice.store?.code || ''}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FD${this.truncate(invoice.store?.name || '', 35)}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FD${this.truncate(invoice.store?.location || '', 35)}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FDCUST VAT : ${invoice.store?.tax_doc_number || 'N/A'}^FS\n`;
+    y += 28;
+    zpl += `^FO${leftX},${y}^A0N,20,20^FDCUST TEL : ${invoice.store?.phone || ''}^FS\n`;
 
-    // Dashed Line
-    zpl += this.dashedLine(yPos);
-    yPos += 20;
+    // Right column - Invoice info (RIGHT ALIGNED)
+    y = startY;
+    zpl += `^FO${rightColX},${y}^A0N,20,20^FB${rightColWidth},1,0,R^FDINVOICE NO  :${invoice.invoice_number}^FS\n`;
+    y += 28;
+    zpl += `^FO${rightColX},${y}^A0N,20,20^FB${rightColWidth},1,0,R^FDINVOICE TYPE :${invoice.invoice_type || 'CREDIT'}^FS\n`;
+    y += 28;
+    zpl += `^FO${rightColX},${y}^A0N,20,20^FB${rightColWidth},1,0,R^FDINVOICE DATE :${this.formatDate(invoice.invoice_date)}^FS\n`;
+    y += 28;
+    zpl += `^FO${rightColX},${y}^A0N,20,20^FB${rightColWidth},1,0,R^FDDELIVERY DATE:${this.formatDate(invoice.delivery_date || invoice.invoice_date)}^FS\n`;
+    y += 28;
+    zpl += `^FO${rightColX},${y}^A0N,20,20^FB${rightColWidth},1,0,R^FDTIME        :${invoice.delivery_time || ''}^FS\n`;
 
-    // Table Header
-    zpl += this.generateTableHeader(yPos);
-    yPos += 40;
+    y = startY + 200;
 
-    // Dashed Line
-    zpl += this.dashedLine(yPos);
-    yPos += 15;
+    // ===== SALES HEADER (bilingual) =====
+    zpl += `^FO${this.margin},${y}^A0N,28,28^FB${this.width - 250},1,0,C^FDSALES^FS\n`;
+    // Arabic BOLD - right aligned
+    zpl += `^FO${this.margin},${y}^AZN,28,28^FB${this.width - 2 * this.margin},1,0,R^FDالمبيعات^FS\n`;
+    y += 42;
 
-    // Line Items
-    for (const line of invoice.lines) {
-      zpl += this.generateLineItem(line, yPos);
-      yPos += 90;
-    }
+    // ===== DASHED LINE =====
+    zpl += this.dashedLine(y);
+    y += 25;
 
-    // Double line
-    zpl += this.equalLine(yPos);
-    yPos += 20;
+    // ===== TABLE HEADERS =====
+    // Column positions for 832px width
+    const cItem = this.margin;      // ITEM/DESCRIPTION
+    const cUPC = 160;               // UPC  
+    const cQty = 280;               // QTY
+    const cPrice = 360;             // PRICE
+    const cDisc = 450;              // DISC/REBATE
+    const cVAT = 560;               // VAT AMOUNT
+    const cAmt = 720;               // AMOUNT
+    const colAmtWidth = this.width - cAmt - this.margin;
 
-    // Total Row
-    zpl += this.generateTotalsRow(invoice, yPos);
-    yPos += 40;
+    // English headers (first row)
+    zpl += `^FO${cItem},${y}^A0N,18,18^FDITEM/DESCRIPTION^FS\n`;
+    zpl += `^FO${cUPC},${y}^A0N,18,18^FB100,1,0,C^FDUPC^FS\n`;
+    zpl += `^FO${cQty},${y}^A0N,18,18^FDQTY^FS\n`;
+    zpl += `^FO${cPrice},${y}^A0N,18,18^FDPRICE^FS\n`;
+    zpl += `^FO${cDisc},${y}^A0N,18,18^FDDISC/REBATE^FS\n`;
+    zpl += `^FO${cVAT},${y}^A0N,18,18^FB140,1,0,C^FDVAT AMOUNT^FS\n`;
+    zpl += `^FO${cAmt},${y}^A0N,18,18^FB${colAmtWidth},1,0,R^FDAMOUNT^FS\n`;
+    
+    // Arabic headers (second row) - BOLD, with UPC and VAT CENTER aligned
+    y += 24;
+    zpl += `^FO${cItem},${y}^AZN,16,16^FB140,1,0,L^FDبند/وصف^FS\n`;
+    zpl += `^FO${cUPC},${y}^AZN,16,16^FB100,1,0,C^FDرمز المنتج العالمي^FS\n`;  // CENTER
+    zpl += `^FO${cQty},${y}^AZN,16,16^FB70,1,0,L^FDالكمية^FS\n`;
+    zpl += `^FO${cPrice},${y}^AZN,16,16^FB80,1,0,L^FDالسعر^FS\n`;
+    zpl += `^FO${cDisc},${y}^AZN,16,16^FB100,1,0,L^FDالخصم/الحسم^FS\n`;
+    zpl += `^FO${cVAT},${y}^AZN,16,16^FB140,1,0,C^FDمبلغ ضريبة القيمة المضافة^FS\n`;  // CENTER
+    zpl += `^FO${cAmt},${y}^AZN,16,16^FB${colAmtWidth},1,0,R^FDالمبلغ^FS\n`;
+    y += 26;
 
-    // NET DUE Section
-    zpl += this.generateNetDueSection(invoice, yPos);
-    yPos += 260;
+    // Dashed line after header
+    zpl += this.dashedLine(y);
+    y += 22;
 
-    // TC CHARGED (no + sign as per original)
-    zpl += `^FO${this.margin},${yPos}^A0N,22,22^FDTC CHARGED : ${invoice.net_amount.toFixed(2)}^FS\n`;
-    yPos += 35;
+    // ===== LINE ITEMS =====
+    for (const line of invoice.lines) {
+      // Row 1: Item code, qty, uom, price, disc, vat, amount
+      zpl += `^FO${cItem},${y}^A0N,20,20^FD${line.item_code}^FS\n`;
+      zpl += `^FO${cQty},${y}^A0N,20,20^FD${line.qty}^FS\n`;
+      zpl += `^FO${cQty + 40},${y}^A0N,20,20^FD${line.uom || 'EA'}^FS\n`;
+      zpl += `^FO${cPrice},${y}^A0N,20,20^FD${line.unit_price.toFixed(2)}^FS\n`;
+      zpl += `^FO${cDisc},${y}^A0N,20,20^FD${line.total_discount.toFixed(2)}^FS\n`;
+      zpl += `^FO${cVAT},${y}^A0N,18,18^FB140,1,0,C^FD+${line.total_tax.toFixed(2)}(${line.tax_percentage || 5}%)^FS\n`;
+      zpl += `^FO${cAmt},${y}^A0N,20,20^FB${colAmtWidth},1,0,R^FD${line.net_amount.toFixed(2)}^FS\n`;
+      
+      // Row 2: SKU description
+      y += 26;
+      zpl += `^FO${cItem},${y}^A0N,18,18^FD${this.truncate(line.sku_name, 65)}^FS\n`;
+      
+      // Row 3: UPC code and Arabic label (بند/وصف)
+      y += 24;
+      zpl += `^FO${cItem},${y}^A0N,18,18^FD${line.upc_code || ''}^FS\n`;
+      zpl += `^FO${cUPC + 70},${y}^AZN,16,16^FB100,1,0,L^FDبند/وصف^FS\n`;
+      
+      // Row 4: Excise duty
+      y += 24;
+      zpl += `^FO${cItem},${y}^A0N,18,18^FDExcise Duty : ${(line.excise_duty || 0).toFixed(2)}^FS\n`;
+      
+      y += 30; // Space between line items
+    }
 
-    // Long Dashed Line
-    zpl += this.longDashedLine(yPos);
-    yPos += 20;
+    // ===== EQUALS LINE (double line) =====
+    zpl += this.equalLine(y);
+    y += 30;
 
-    // Count
-    const uniqueItems = invoice.lines.length;
-    const totalQty = invoice.lines.reduce((sum, line) => sum + line.qty, 0);
-    zpl += `^FO${this.margin},${yPos}^A0N,18,18^FDcount : ${uniqueItems} + ${totalQty}=${uniqueItems + totalQty}^FS\n`;
-    yPos += 25;
-    
-    zpl += `^FO${this.margin},${yPos}^A0N,20,20^FDPAYMENT DUE DATE :${this.formatDateShort(invoice.payment_due_date)}^FS\n`;
-    yPos += 30;
+    // ===== TOTAL ROW =====
+    const totalQty = invoice.lines.reduce((s, l) => s + l.qty, 0);
+    zpl += `^FO${cItem},${y}^A0N,24,24^FDTOTAL^FS\n`;
+    zpl += `^FO${cQty},${y}^A0N,24,24^FD${totalQty}^FS\n`;
+    zpl += `^FO${cDisc},${y}^A0N,24,24^FD${invoice.total_discount.toFixed(2)}^FS\n`;
+    zpl += `^FO${cVAT},${y}^A0N,24,24^FB140,1,0,C^FD+${invoice.total_tax.toFixed(2)}^FS\n`;
+    zpl += `^FO${cAmt},${y}^A0N,24,24^FB${colAmtWidth},1,0,R^FD${invoice.net_amount.toFixed(2)}^FS\n`;
+    y += 55;
 
-    // Long Dashed Line
-    zpl += this.longDashedLine(yPos);
-    yPos += 30;
+    // ===== NET DUE SECTION =====
+    const sales = invoice.net_amount + invoice.total_discount - invoice.total_tax;
+    
+    // Header row - English left, Arabic BOLD right aligned
+    zpl += `^FO${this.margin},${y}^A0N,22,22^FDNET DUE THIS INVOICE^FS\n`;
+    zpl += `^FO${this.margin},${y}^AZN,20,20^FB${this.width - 2 * this.margin},1,0,R^FDصافي مستحق الفاتورة^FS\n`;
+    y += 38;
 
-    // Signatures
-    zpl += this.generateSignatureSection(yPos);
-    yPos += 70;
+    // Net due rows - English left, Value middle, Arabic BOLD right
+    const valX = 280;
+    const valWidth = 120;
+    
+    const netRows = [
+      { en: 'SALES', ar: 'المبيعات', val: sales },
+      { en: 'DISCOUNT', ar: 'الخصم', val: -invoice.total_discount },
+      { en: 'GOOD RETURNS', ar: 'البضائع المرتجعة', val: invoice.good_returns || 0 },
+      { en: 'DAMAGED RETURNS', ar: 'بضاعة معدومة مرتجعة', val: invoice.damaged_returns || 0 },
+      { en: 'VAT AMOUNT', ar: 'مبلغ ضريبة القيمة المضافة', val: invoice.total_tax },
+      { en: 'EXCISE DUTY AMOUNT', ar: 'مبلغ ضريبة الاستهلاك', val: invoice.excise_duty_amount || 0 },
+      { en: 'NET SALES', ar: 'صافي المبيعات', val: invoice.net_amount }
+    ];
 
-    // DUPLICATE centered
-    zpl += this.centerText('DUPLICATE', yPos, 24, 24);
+    for (const row of netRows) {
+      const sign = row.val >= 0 ? '+' : '';
+      zpl += `^FO${this.margin},${y}^A0N,20,20^FD${row.en}^FS\n`;
+      zpl += `^FO${valX},${y}^A0N,20,20^FB${valWidth},1,0,R^FD${sign}${row.val.toFixed(2)}^FS\n`;
+      // Arabic BOLD - right aligned
+      zpl += `^FO${this.margin},${y}^AZN,18,18^FB${this.width - 2 * this.margin},1,0,R^FD${row.ar}^FS\n`;
+      y += 30;
+    }
 
-    zpl += '^XZ\n';
-    return zpl;
-  }
+    // ===== TC CHARGED =====
+    y += 12;
+    zpl += `^FO${this.margin},${y}^A0N,22,22^FDTC CHARGED :^FS\n`;
+    zpl += `^FO${valX},${y}^A0N,22,22^FB${valWidth},1,0,R^FD+${invoice.net_amount.toFixed(2)}^FS\n`;
+    y += 12;
+    zpl += `^FO${valX},${y}^GB${valWidth},1,1^FS\n`; // Underline
+    y += 24;
 
-  // ================= COMPANY HEADER =================
-  private generateCompanyHeader(y: number): string {
-    let zpl = '';
+    // ===== COUNT =====
+    const unique = invoice.lines.length;
+    const sumQty = invoice.lines.reduce((s, l) => s + l.qty, 0);
+    zpl += this.dashedLine(y);
+    y += 24;
+    zpl += `^FO${this.margin},${y}^A0N,20,20^FD  count : ${unique} + ${sumQty}=${unique + sumQty}^FS\n`;
+    y += 30;
 
-    // Logo placeholder - left side
-    zpl += `^FO${this.margin},${y}^GB100,80,2^FS\n`;
-    zpl += `^FO${this.margin + 30},${y + 30}^A0N,18,18^FDLOGO^FS\n`;
+    // ===== PAYMENT DUE DATE =====
+    zpl += `^FO${this.margin},${y}^A0N,22,22^FDPAYMENT DUE DATE :${this.formatDate(invoice.payment_due_date)}^FS\n`;
+    y += 32;
+    zpl += this.dashedLine(y);
+    y += 50;
 
-    // Company info - right aligned
-    const rightX = 480;
-    zpl += `^FO${rightX},${y}^A0N,16,16^FB320,1,0,R^FDVAT REG.NO.: 100057393900003^FS\n`;
-    zpl += `^FO${rightX},${y + 20}^A0N,16,16^FB320,1,0,R^FDRAINBOW DIV-OOH^FS\n`;
-    zpl += `^FO${rightX},${y + 40}^A0N,16,16^FB320,1,0,R^FDPO BOX:5249-DUBAI-UAE^FS\n`;
-    zpl += `^FO${rightX},${y + 60}^A0N,16,16^FB320,1,0,R^FDTEL:04-2979991 FAX:04-2662931^FS\n`;
-    zpl += `^FO${rightX},${y + 80}^A0N,16,16^FB320,1,0,R^FDEMAIL:RAINBOW@CHOITHRAMS.COM^FS\n`;
+    // ===== SIGNATURES =====
+    zpl += `^FO${this.width - 320},${y}^A0N,20,20^FDSALESMAN SIGNATURE__________^FS\n`;
+    y += 45;
+    zpl += `^FO${this.margin},${y}^A0N,20,20^FDCUSTOMER SIGNATURE__________^FS\n`;
+    y += 60;
 
-    return zpl;
-  }
+    // ===== DUPLICATE =====
+    zpl += `^FO0,${y}^A0N,28,28^FB${this.width},1,0,C^FDDUPLICATE^FS\n`;
 
-  // ================= INVOICE DETAILS =================
-  private generateInvoiceDetails(invoice: InvoiceWithDetails, y: number): string {
-    const leftX = this.margin;
-    let zpl = '';
+    // End label
+    zpl += '^XZ\n';
+    
+    return zpl;
+  }
 
-    // Left column
-    zpl += `^FO${leftX},${y}^A0N,17,17^FDSALESMAN: ${invoice.salesman_code || ''} - ${invoice.salesman_name || ''} - ${invoice.salesman_phone || ''}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FDRoute  : ${invoice.route_code || ''} - ${invoice.route_name || ''}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FDCUST   : ${invoice.store?.code || ''}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FD${invoice.store?.name || ''}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FD${invoice.store?.location || ''}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FDCUST VAT : ${invoice.store?.tax_doc_number || 'N/A'}^FS\n`;
-    y += 24;
-    zpl += `^FO${leftX},${y}^A0N,17,17^FDCUST TEL : ${invoice.store?.phone || ''}^FS\n`;
+  // ===== HELPERS =====
+  private dashedLine(y: number): string {
+    const dashCount = Math.floor((this.width - 2 * this.margin) / 8);
+    let line = '';
+    for (let i = 0; i < dashCount; i++) {
+      line += '- ';
+    }
+    return `^FO${this.margin},${y}^A0N,14,14^FD${line}^FS\n`;
+  }
 
-    // Right column
-    y = y - 120;
-    const rightX = 520;
-    zpl += `^FO${rightX},${y}^A0N,17,17^FB280,1,0,R^FDINVOICE NO  :${invoice.invoice_number}^FS\n`;
-    y += 24;
-    zpl += `^FO${rightX},${y}^A0N,17,17^FB280,1,0,R^FDINVOICE TYPE :${invoice.invoice_type || 'CREDIT'}^FS\n`;
-    y += 24;
-    zpl += `^FO${rightX},${y}^A0N,17,17^FB280,1,0,R^FDINVOICE DATE :${this.formatDateShort(invoice.invoice_date)}^FS\n`;
-    y += 24;
-    zpl += `^FO${rightX},${y}^A0N,17,17^FB280,1,0,R^FDDELIVERY DATE:${this.formatDateShort(invoice.delivery_date || invoice.invoice_date)}^FS\n`;
-    y += 24;
-    zpl += `^FO${rightX},${y}^A0N,17,17^FB280,1,0,R^FDTIME        :${invoice.delivery_time || ''}^FS\n`;
+  private equalLine(y: number): string {
+    const lineWidth = this.width - 2 * this.margin;
+    let zpl = '';
+    zpl += `^FO${this.margin},${y}^GB${lineWidth},2,2^FS\n`;
+    zpl += `^FO${this.margin},${y + 6}^GB${lineWidth},2,2^FS\n`;
+    return zpl;
+  }
 
-    return zpl;
-  }
+  private truncate(text: string, max: number): string {
+    if (!text) return '';
+    return text.length > max ? text.substring(0, max - 3) + '...' : text;
+  }
 
-  // ================= TABLE HEADER =================
-  private generateTableHeader(y: number): string {
-    let zpl = '';
-
-    // English headers
-    zpl += `^FO15,${y}^A0N,15,15^FDITEM/DESCRIPTION^FS\n`;
-    zpl += `^FO210,${y}^A0N,15,15^FDUPC^FS\n`;
-    zpl += `^FO280,${y}^A0N,15,15^FDQTY^FS\n`;
-    zpl += `^FO340,${y}^A0N,15,15^FDPRICE^FS\n`;
-    zpl += `^FO420,${y}^A0N,15,15^FDDISC/REBATE^FS\n`;
-    zpl += `^FO540,${y}^A0N,15,15^FDVAT AMOUNT^FS\n`;
-    zpl += `^FO700,${y}^A0N,15,15^FDAMOUNT^FS\n`;
-
-    // Arabic headers
-    y += 20;
-    zpl += `^FO15,${y}^A0N,13,13^FDبند/وصف^FS\n`;
-    zpl += `^FO210,${y}^A0N,13,13^FDرمز المنتج^FS\n`;
-    zpl += `^FO280,${y}^A0N,13,13^FDالكمية^FS\n`;
-    zpl += `^FO340,${y}^A0N,13,13^FDالسعر^FS\n`;
-    zpl += `^FO420,${y}^A0N,13,13^FDالخصم/الحسم^FS\n`;
-    zpl += `^FO540,${y}^A0N,13,13^FDمبلغ الضريبة^FS\n`;
-    zpl += `^FO700,${y}^A0N,13,13^FDالمبلغ^FS\n`;
-
-    return zpl;
-  }
-
-  // ================= LINE ITEM =================
-  private generateLineItem(line: InvoiceLine, y: number): string {
-    let zpl = '';
-    
-    // Row 1
-    zpl += `^FO15,${y}^A0N,16,16^FD${line.item_code}^FS\n`;
-    zpl += `^FO210,${y}^A0N,16,16^FD${line.upc_code || ''}^FS\n`;
-    zpl += `^FO280,${y}^A0N,16,16^FD${line.qty}^FS\n`;
-    zpl += `^FO310,${y}^A0N,16,16^FD${line.uom}^FS\n`;
-    zpl += `^FO340,${y}^A0N,16,16^FD${line.unit_price.toFixed(2)}^FS\n`;
-    zpl += `^FO440,${y}^A0N,16,16^FD${line.total_discount.toFixed(2)}^FS\n`;
-    zpl += `^FO550,${y}^A0N,14,14^FD+${line.total_tax.toFixed(2)}(${line.tax_percentage || 5}%)^FS\n`;
-    zpl += `^FO700,${y}^A0N,16,16^FB100,1,0,R^FD${line.net_amount.toFixed(2)}^FS\n`;
-
-    // Row 2: SKU Name
-    y += 18;
-    zpl += `^FO15,${y}^A0N,14,14^FD${this.truncateText(line.sku_name, 40)}^FS\n`;
-
-    // Row 3: Arabic placeholder
-    y += 16;
-    zpl += `^FO15,${y}^A0N,12,12^FDبند/وصف^FS\n`;
-
-    // Row 4: Excise Duty
-    y += 18;
-    zpl += `^FO15,${y}^A0N,12,12^FDExcise Duty : ${(line.excise_duty || 0).toFixed(2)}^FS\n`;
-
-    return zpl;
-  }
-
-  // ================= TOTAL =================
-  private generateTotalsRow(invoice: InvoiceWithDetails, y: number): string {
-    const totalQty = invoice.lines.reduce((sum, line) => sum + line.qty, 0);
-    let zpl = '';
-    zpl += `^FO15,${y}^A0N,22,22^FDTOTAL^FS\n`;
-    zpl += `^FO280,${y}^A0N,22,22^FD${totalQty}^FS\n`;
-    zpl += `^FO440,${y}^A0N,22,22^FD${invoice.total_discount.toFixed(2)}^FS\n`;
-    zpl += `^FO550,${y}^A0N,22,22^FD+${invoice.total_tax.toFixed(2)}^FS\n`;
-    zpl += `^FO700,${y}^A0N,22,22^FB100,1,0,R^FD${invoice.net_amount.toFixed(2)}^FS\n`;
-    return zpl;
-  }
-
-  // ================= NET DUE =================
-  private generateNetDueSection(invoice: InvoiceWithDetails, y: number): string {
-    // Calculate sales
-    const sales = invoice.net_amount + invoice.total_discount - invoice.total_tax;
-    
-    const rows = [
-      { label: 'SALES', value: sales, arabic: 'المبيعات' },
-      { label: 'DISCOUNT', value: -invoice.total_discount, arabic: 'القرص' },
-      { label: 'GOOD RETURNS', value: invoice.good_returns || 0, arabic: 'البضائع المرتجعة' },
-      { label: 'DAMAGED RETURNS', value: invoice.damaged_returns || 0, arabic: 'بضاعة معدومة مرتجعة' },
-      { label: 'VAT AMOUNT', value: invoice.total_tax, arabic: 'مبلغ ضريبة القيمة المضافة' },
-      { label: 'EXCISE DUTY AMOUNT', value: invoice.excise_duty_amount || 0, arabic: 'مبلغ ضريبة الاستهلاك' },
-      { label: 'NET SALES', value: invoice.net_amount, arabic: 'صافي المبيعات' }
-    ];
-
-    let zpl = '';
-    // Section header
-    zpl += `^FO${this.margin},${y}^A0N,20,20^FDNET DUE THIS INVOICE^FS\n`;
-    zpl += `^FO550,${y}^A0N,20,20^FB240,1,0,R^FDصافي مستحق الفاتورة^FS\n`;
-    y += 28;
-
-    for (const r of rows) {
-      const sign = r.value >= 0 ? '+' : '';
-      zpl += `^FO${this.margin},${y}^A0N,16,16^FD${r.label}^FS\n`;
-      zpl += `^FO380,${y}^A0N,16,16^FD${sign}${r.value.toFixed(2)}^FS\n`;
-      zpl += `^FO550,${y}^A0N,16,16^FB240,1,0,R^FD${r.arabic}^FS\n`;
-      y += 22;
-    }
-    return zpl;
-  }
-
-  // ================= SIGNATURE =================
-  private generateSignatureSection(y: number): string {
-    let zpl = '';
-    // Customer signature - left
-    zpl += `^FO${this.margin},${y + 40}^A0N,18,18^FDCUSTOMER SIGNATURE__________^FS\n`;
-    // Salesman signature - right
-    zpl += `^FO480,${y}^A0N,18,18^FDSALESMAN SIGNATURE__________^FS\n`;
-    return zpl;
-  }
-
-  // ================= HELPERS =================
-  private centerText(text: string, y: number, h: number, w: number): string {
-    return `^FO0,${y}^A0N,${h},${w}^FB${this.labelWidth},1,0,C^FD${text}^FS\n`;
-  }
-
-  private dashedLine(y: number): string {
-    let dashLine = '';
-    for (let i = 0; i < 76; i++) {
-      dashLine += '-';
-    }
-    return `^FO${this.margin},${y}^A0N,14,14^FD${dashLine}^FS\n`;
-  }
-
-  private longDashedLine(y: number): string {
-    let dashLine = '';
-    for (let i = 0; i < 90; i++) {
-      dashLine += '-';
-    }
-    return `^FO${this.margin},${y}^A0N,12,12^FD${dashLine}^FS\n`;
-  }
-
-  private equalLine(y: number): string {
-    const lineWidth = this.labelWidth - 2 * this.margin;
-    let zpl = '';
-    zpl += `^FO${this.margin},${y}^GB${lineWidth},2,2^FS\n`;
-    zpl += `^FO${this.margin},${y + 5}^GB${lineWidth},2,2^FS\n`;
-    return zpl;
-  }
-
-  private truncateText(text: string, maxLen: number): string {
-    if (!text) return '';
-    return text.length > maxLen ? text.substring(0, maxLen - 3) + '...' : text;
-  }
-
-  private formatDateShort(d: string): string {
-    if (!d) return '';
-    const dt = new Date(d);
-    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`;
-  }
+  private formatDate(d: string): string {
+    if (!d) return '';
+    const dt = new Date(d);
+    return `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${String(dt.getFullYear()).slice(-2)}`;
+  }
 }
 
 export default new ZPLGeneratorService();

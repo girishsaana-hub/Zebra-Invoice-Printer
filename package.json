@@ -16,6 +16,7 @@
     "react": "19.2.0",
     "react-native": "0.83.1",
     "react-native-bluetooth-classic": "^1.73.0-rc.17",
+    "react-native-canvas": "^0.1.40",
     "react-native-fs": "^2.20.0",
     "react-native-safe-area-context": "^5.5.2",
     "react-native-view-shot": "^4.0.3",

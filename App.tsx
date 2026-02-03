@@ -16,7 +16,6 @@ import {
 import RNBluetoothClassic, {
   BluetoothDevice,
 } from 'react-native-bluetooth-classic';
-
 import DatabaseService from './src/services/DatabaseService';
 import ZPLGeneratorService from './src/services/ZPLGeneratorService';
 import InvoiceListComponent from './src/components/InvoiceListComponent';
@@ -57,7 +56,6 @@ const App = () => {
             PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
             PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
             PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-            PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
           ]);
         } else {
           await PermissionsAndroid.requestMultiple([
@@ -157,12 +155,8 @@ const App = () => {
       }
       ToastAndroid.show(`Connecting to ${device.name}...`, ToastAndroid.SHORT);
       
-      // Try connection with CONNECTOR_TYPE for Zebra printers
-      console.log('Calling device.connect() with options...');
       let connection = false;
-      
       try {
-        // Try simple connect first, it works best for most Zebra printers
         connection = await device.connect();
       } catch (e1) {
         console.log('Default connection failed, trying with RFCOMM...', e1);
@@ -211,14 +205,20 @@ const App = () => {
     handleViewDetails(selectedInvoice);
   };
 
+  // ===== OFFICIAL ZEBRA ZPL PRINT METHOD =====
   const printFromPreview = async () => {
     if (!invoiceDetails) return;
 
-    console.log('printFromPreview called - using direct ZPL');
+    console.log('printFromPreview called - using official ZPL ^PA method');
     setIsPrinting(true);
+    
     try {
+      // Generate ZPL using official Zebra method with ^PA for Arabic
+      console.log('Generating ZPL with Arabic support (^CI28, ^CWZ, ^PA)...');
       const zpl = ZPLGeneratorService.generateInvoiceZPL(invoiceDetails);
+      
       console.log('Generated ZPL length:', zpl.length);
+      console.log('ZPL preview (first 800 chars):\n', zpl.substring(0, 800));
 
       if (connectedDevice) {
         await connectedDevice.write(zpl);
@@ -227,12 +227,43 @@ const App = () => {
       } else {
         Alert.alert(
           'Test Mode',
-          `ZPL generated for invoice ${invoiceDetails.invoice_number}.\n\nConnect a Zebra printer to print.`,
+          `ZPL generated for invoice ${invoiceDetails.invoice_number}.\n\nConnect a Zebra printer to print.\n\nZPL length: ${zpl.length} chars`,
         );
       }
     } catch (error) {
       console.error('Print error:', error);
       Alert.alert('Print Error', `Failed to print invoice: ${error}`);
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  // ===== TEST ARABIC PRINTING =====
+  const printTestArabic = async () => {
+    if (!connectedDevice) {
+      Alert.alert('No Printer', 'Please connect to a printer first.');
+      return;
+    }
+
+    setIsPrinting(true);
+    try {
+      // Official Zebra test pattern with Arabic
+      const testZPL = `^XA
+^CI28
+^CWZ,E:TT0003M_.TTF
+^FO250,50^A0N,30,30^FDTest / اختبار^FS
+^FO500,100^PA0,1,1,1^AZN,30^FDمرحبا^FS
+^FO250,150^A0N,25,25^FDHello World^FS
+^FO500,200^PA0,1,1,1^AZN,25^FDعربي^FS
+^FO250,280^PA0,1,1,1^AZN,22^FDشكرا لتعاملكم / Thank You^FS
+^XZ`;
+
+      console.log('Sending Arabic test ZPL...');
+      await connectedDevice.write(testZPL);
+      ToastAndroid.show('Test pattern sent!', ToastAndroid.SHORT);
+    } catch (error) {
+      console.error('Test print error:', error);
+      Alert.alert('Test Print Error', String(error));
     } finally {
       setIsPrinting(false);
     }
@@ -290,29 +321,27 @@ const App = () => {
       )}
 
       {/* Print Button */}
-      <View style={styles.bottomActions}>
-        <TouchableOpacity
-          style={[
-            styles.printButton,
-            (!selectedInvoice || isPrinting) && styles.disabledButton,
-          ]}
-          onPress={printSelectedInvoice}
-          disabled={!selectedInvoice || isPrinting}>
-          {isPrinting ? (
-            <ActivityIndicator color="#FFF" />
-          ) : (
-            <Text style={styles.printButtonText}>
-              🖨️ Preview & Print Selected Invoice
-            </Text>
-          )}
-        </TouchableOpacity>
-        
-        {!connectedDevice && (
-          <Text style={styles.noPrinterWarning}>
-            ⚠️ No printer connected - tap Printers tab to connect
+      <TouchableOpacity
+        style={[
+          styles.printButton,
+          (!selectedInvoice || isPrinting) && styles.disabledButton,
+        ]}
+        onPress={printSelectedInvoice}
+        disabled={!selectedInvoice || isPrinting}>
+        {isPrinting ? (
+          <ActivityIndicator color="#FFF" />
+        ) : (
+          <Text style={styles.printButtonText}>
+            🖨️ Preview & Print Selected Invoice
           </Text>
         )}
-      </View>
+      </TouchableOpacity>
+      
+      {!connectedDevice && (
+        <Text style={styles.noPrinterWarning}>
+          ⚠️ No printer connected - tap Printers tab to connect
+        </Text>
+      )}
     </View>
   );
 
@@ -345,6 +374,15 @@ const App = () => {
               <Text style={styles.disconnectButtonText}>Disconnect</Text>
             </TouchableOpacity>
           </View>
+          {/* Test Print Button */}
+          <TouchableOpacity
+            style={styles.testPrintButton}
+            onPress={printTestArabic}
+            disabled={isPrinting}>
+            <Text style={styles.testPrintButtonText}>
+              {isPrinting ? 'Printing...' : '🧪 Test Arabic Print'}
+            </Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -469,10 +507,10 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: 15,
     color: '#666',
+    fontWeight: '600',
   },
   activeTabText: {
     color: '#007AFF',
-    fontWeight: '600',
   },
   screenContainer: {
     flex: 1,
@@ -480,24 +518,25 @@ const styles = StyleSheet.create({
   },
   searchContainer: {
     flexDirection: 'row',
-    marginBottom: 16,
+    marginBottom: 12,
   },
   searchInput: {
     flex: 1,
     backgroundColor: '#FFF',
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    fontSize: 15,
+    fontSize: 16,
     borderWidth: 1,
     borderColor: '#E0E0E0',
   },
   searchButton: {
     backgroundColor: '#007AFF',
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 16,
     marginLeft: 8,
     justifyContent: 'center',
+    alignItems: 'center',
   },
   searchButtonText: {
     fontSize: 20,
@@ -509,11 +548,8 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 12,
+    fontSize: 16,
     color: '#666',
-    fontSize: 14,
-  },
-  invoiceListContainer: {
-    flex: 1,
   },
   bottomActions: {
     paddingTop: 16,
@@ -592,6 +628,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  testPrintButton: {
+    backgroundColor: '#6C757D',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  testPrintButtonText: {
+    color: '#FFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
   listHeader: {
     fontSize: 16,
     fontWeight: '600',
@@ -601,6 +650,12 @@ const styles = StyleSheet.create({
   deviceList: {
     flex: 1,
   },
+  emptyText: {
+    textAlign: 'center',
+    color: '#999',
+    fontSize: 15,
+    marginTop: 40,
+  },
   deviceItem: {
     backgroundColor: '#FFF',
     padding: 16,
@@ -609,41 +664,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    elevation: 2,
     shadowColor: '#000',
-    shadowOffset: {width: 0, height: 1},
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
+    elevation: 2,
   },
   connectedItem: {
     borderWidth: 2,
     borderColor: '#28A745',
-    backgroundColor: '#F0FFF4',
+    backgroundColor: '#F0F9F0',
   },
   deviceInfo: {
     flex: 1,
   },
   deviceName: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#000',
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
   },
   deviceAddress: {
     fontSize: 12,
-    color: '#666',
+    color: '#888',
     marginTop: 2,
   },
   connectedLabel: {
     color: '#28A745',
     fontWeight: 'bold',
-    fontSize: 13,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: '#888',
-    marginTop: 40,
     fontSize: 14,
-    lineHeight: 22,
   },
 });
 
