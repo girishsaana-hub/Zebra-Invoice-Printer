@@ -179,9 +179,14 @@ class ZPLGeneratorService {
     const sales = invoice.net_amount + invoice.total_discount - invoice.total_tax;
     
     // Header row - English left, Arabic BOLD right aligned
-    zpl += `^FO${this.margin},${y}^A0N,22,22^FDNET DUE THIS INVOICE^FS\n`;
-    zpl += `^FO${this.margin},${y}^AZN,20,20^FB${this.width - 2 * this.margin},1,0,R^FDصافي مستحق الفاتورة^FS\n`;
-    y += 38;
+zpl += `^FO${this.margin},${y}^A0N,22,22^FDNET DUE THIS INVOICE^FS\n`;
+
+// Arabic bold (overprint technique)
+zpl += `^FO${this.margin},${y}^AZN,20,20^FB${this.width - 2 * this.margin},1,0,R^FDصافي مستحق الفاتورة^FS\n`;
+zpl += `^FO${this.margin + 1},${y}^AZN,20,20^FB${this.width - 2 * this.margin},1,0,R^FDصافي مستحق الفاتورة^FS\n`;
+
+y += 38;
+
 
     // Net due rows - English left, Value middle, Arabic BOLD right
     const valX = 280;
@@ -202,7 +207,10 @@ class ZPLGeneratorService {
       zpl += `^FO${this.margin},${y}^A0N,20,20^FD${row.en}^FS\n`;
       zpl += `^FO${valX},${y}^A0N,20,20^FB${valWidth},1,0,R^FD${sign}${row.val.toFixed(2)}^FS\n`;
       // Arabic BOLD - right aligned
-      zpl += `^FO${this.margin},${y}^AZN,18,18^FB${this.width - 2 * this.margin},1,0,R^FD${row.ar}^FS\n`;
+// Arabic BOLD (overprint technique, right aligned)
+      zpl += `^FO${this.margin},${y}^AZN,18,18^FB${this.width - 2 * this.margin},1,0,R^FD${row.ar}^FS\n`;
+      zpl += `^FO${this.margin + 1},${y}^AZN,18,18^FB${this.width - 2 * this.margin},1,0,R^FD${row.ar}^FS\n`;
+
       y += 30;
     }
 
